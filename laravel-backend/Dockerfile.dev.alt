@@ -1,0 +1,131 @@
+# Laravel Backend Development Dockerfile (Alternative - Using pre-built extensions)
+FROM php:8.1-fpm-alpine
+
+# Install system dependencies first
+RUN apk update && apk add --no-cache \
+    git \
+    curl \
+    wget \
+    zip \
+    unzip \
+    nginx \
+    supervisor \
+    nodejs \
+    npm \
+    # Runtime libraries
+    libpng \
+    libjpeg-turbo \
+    freetype \
+    libxml2 \
+    libzip \
+    icu \
+    oniguruma \
+    # Build dependencies (will be removed later)
+    autoconf \
+    gcc \
+    g++ \
+    make \
+    libc-dev \
+    linux-headers \
+    # Development libraries
+    libpng-dev \
+    libjpeg-turbo-dev \
+    freetype-dev \
+    libxml2-dev \
+    libzip-dev \
+    libxslt-dev \
+    icu-dev \
+    zlib-dev \
+    oniguruma-dev
+
+# Configure PHP extensions before installing
+RUN docker-php-ext-configure gd \
+    --with-freetype \
+    --with-jpeg
+
+# Install PHP extensions one by one for better debugging
+RUN docker-php-ext-install pdo_mysql
+RUN docker-php-ext-install mbstring  
+RUN docker-php-ext-install exif
+RUN docker-php-ext-install pcntl
+RUN docker-php-ext-install bcmath
+RUN docker-php-ext-install gd
+RUN docker-php-ext-install zip
+RUN docker-php-ext-install intl
+RUN docker-php-ext-install soap
+RUN docker-php-ext-install mysqli
+
+# Install Xdebug for development
+RUN apk add --no-cache $PHPIZE_DEPS \
+    && pecl install xdebug \
+    && docker-php-ext-enable xdebug
+
+# Configure Xdebug
+RUN echo "xdebug.mode=debug" >> /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini \
+    && echo "xdebug.start_with_request=yes" >> /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini \
+    && echo "xdebug.client_host=host.docker.internal" >> /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini \
+    && echo "xdebug.client_port=9003" >> /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini
+
+# Clean up build dependencies to reduce image size
+RUN apk del \
+    autoconf \
+    gcc \
+    g++ \
+    make \
+    libc-dev \
+    linux-headers \
+    libpng-dev \
+    libjpeg-turbo-dev \
+    freetype-dev \
+    libxml2-dev \
+    libzip-dev \
+    libxslt-dev \
+    icu-dev \
+    zlib-dev \
+    oniguruma-dev \
+    $PHPIZE_DEPS
+
+# Install Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+# Set working directory
+WORKDIR /var/www/html
+
+# Copy composer files (check if they exist first)
+COPY composer.json composer.lock* ./
+
+# Install PHP dependencies (including dev dependencies)
+RUN composer install --optimize-autoloader || \
+    (echo "Composer install failed, creating minimal Laravel structure..." && \
+     composer create-project laravel/laravel . --prefer-dist --no-scripts && \
+     composer install --optimize-autoloader)
+
+# Copy application code
+COPY . .
+
+# Set permissions
+RUN chown -R www-data:www-data /var/www/html \
+    && chmod -R 755 /var/www/html/storage \
+    && chmod -R 755 /var/www/html/bootstrap/cache
+
+# Copy Nginx config
+COPY docker/nginx/laravel-dev.conf /etc/nginx/http.d/default.conf
+
+# Copy supervisor config
+COPY docker/supervisor/supervisord-dev.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Copy startup script
+COPY docker/scripts/start.sh /usr/local/bin/start.sh
+RUN chmod +x /usr/local/bin/start.sh
+
+# Install netcat for database connection checking
+RUN apk add --no-cache netcat-openbsd
+
+# Create log directories
+RUN mkdir -p /var/log/supervisor
+
+# Expose port 80
+EXPOSE 80
+
+# Use startup script
+CMD ["/usr/local/bin/start.sh"]

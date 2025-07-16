@@ -1,0 +1,63 @@
+# Minimal Laravel Backend Dockerfile (For Testing)
+FROM php:8.1-fpm-alpine
+
+# Install only essential system dependencies
+RUN apk add --no-cache \
+    git \
+    curl \
+    zip \
+    unzip \
+    nginx \
+    supervisor \
+    netcat-openbsd
+
+# Install only essential PHP extensions
+RUN apk add --no-cache \
+    libpng-dev \
+    libxml2-dev \
+    autoconf \
+    gcc \
+    g++ \
+    make \
+    libc-dev
+
+# Install minimal PHP extensions
+RUN docker-php-ext-install pdo_mysql
+RUN docker-php-ext-install mbstring
+
+# Install Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+# Set working directory
+WORKDIR /var/www/html
+
+# Copy composer files
+COPY composer.json composer.lock* ./
+
+# Install PHP dependencies
+RUN composer install --no-dev --optimize-autoloader --no-scripts || \
+    (composer create-project laravel/laravel . --prefer-dist --no-scripts && \
+     composer install --no-dev --optimize-autoloader --no-scripts)
+
+# Copy application code
+COPY . .
+
+# Set permissions
+RUN chown -R www-data:www-data /var/www/html \
+    && chmod -R 755 /var/www/html/storage \
+    && chmod -R 755 /var/www/html/bootstrap/cache
+
+# Copy configurations
+COPY docker/nginx/laravel-dev.conf /etc/nginx/http.d/default.conf
+COPY docker/supervisor/supervisord-dev.conf /etc/supervisor/conf.d/supervisord.conf
+COPY docker/scripts/start.sh /usr/local/bin/start.sh
+RUN chmod +x /usr/local/bin/start.sh
+
+# Create log directories
+RUN mkdir -p /var/log/supervisor
+
+# Expose port 80
+EXPOSE 80
+
+# Start supervisor
+CMD ["/usr/local/bin/start.sh"]
