@@ -1,0 +1,117 @@
+version: '3.8'
+
+services:
+  # React Frontend (Development)
+  frontend-dev:
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - REACT_APP_LARAVEL_API_URL=http://localhost:8000/api
+      - REACT_APP_WORDPRESS_URL=http://localhost:8080
+      - CHOKIDAR_USEPOLLING=true
+    depends_on:
+      - laravel-backend-dev
+      - wordpress-dev
+    networks:
+      - app-network
+
+  # Laravel Backend (Development)
+  laravel-backend-dev:
+    build: 
+      context: ./laravel-backend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8000:80"
+    volumes:
+      - ./laravel-backend:/var/www/html
+    environment:
+      - APP_ENV=local
+      - APP_DEBUG=true
+      - APP_KEY=base64:YourGeneratedKeyHere
+      - DB_CONNECTION=mysql
+      - DB_HOST=mysql-dev
+      - DB_PORT=3306
+      - DB_DATABASE=laravel_app
+      - DB_USERNAME=root
+      - DB_PASSWORD=root_password
+      - WORDPRESS_DB_HOST=mysql-dev
+      - WORDPRESS_DB_DATABASE=wordpress
+      - CACHE_DRIVER=redis
+      - REDIS_HOST=redis-dev
+    depends_on:
+      - mysql-dev
+      - redis-dev
+    networks:
+      - app-network
+
+  # WordPress (Development)
+  wordpress-dev:
+    image: wordpress:latest
+    ports:
+      - "8080:80"
+    environment:
+      WORDPRESS_DB_HOST: mysql-dev
+      WORDPRESS_DB_USER: root
+      WORDPRESS_DB_PASSWORD: root_password
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DEBUG: 1
+    volumes:
+      - wordpress_dev_data:/var/www/html
+      - ./wordpress:/var/www/html/wp-content
+    depends_on:
+      - mysql-dev
+    networks:
+      - app-network
+
+  # MySQL (Development)
+  mysql-dev:
+    image: mysql:8.0
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: laravel_app
+    volumes:
+      - mysql_dev_data:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password
+    networks:
+      - app-network
+
+  # Redis (Development)
+  redis-dev:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_dev_data:/data
+    networks:
+      - app-network
+
+  # phpMyAdmin (Development)
+  phpmyadmin-dev:
+    image: phpmyadmin:latest
+    ports:
+      - "8081:80"
+    environment:
+      PMA_HOST: mysql-dev
+      PMA_USER: root
+      PMA_PASSWORD: root_password
+    depends_on:
+      - mysql-dev
+    networks:
+      - app-network
+
+volumes:
+  mysql_dev_data:
+  wordpress_dev_data:
+  redis_dev_data:
+
+networks:
+  app-network:
+    driver: bridge
